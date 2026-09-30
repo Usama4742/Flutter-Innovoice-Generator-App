@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:innvoice_generator/core/services/vendor_services.dart';
+import 'package:innvoice_generator/screens/invoice/invoice_list.dart';
 import 'package:innvoice_generator/screens/vendor_settings.dart';
 import 'theme.dart';
 
@@ -115,9 +116,7 @@ class _AppDrawerState
                         Icons.receipt_long_rounded,
                     title: 'Invoices',
                     onTap: () {
-                      Navigator.pop(
-                        context,
-                      );
+                     Navigator.push(context, MaterialPageRoute(builder: (context) => const InvoiceListScreen()));
                     },
                   ),
 

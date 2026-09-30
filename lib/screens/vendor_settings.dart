@@ -1,6 +1,11 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:innvoice_generator/core/services/vendor_services.dart';
 import 'package:innvoice_generator/widgets/vendor_setting_card.dart';
+
 import '../widgets/theme.dart';
 
 class VendorSettingsScreen extends StatefulWidget {
@@ -12,14 +17,14 @@ class VendorSettingsScreen extends StatefulWidget {
 
 class _VendorSettingsScreenState extends State<VendorSettingsScreen> {
   final companyNameController = TextEditingController();
-
   final vendorNameController = TextEditingController();
-
   final emailController = TextEditingController();
-
   final phoneController = TextEditingController();
-
   final addressController = TextEditingController();
+
+  final ImagePicker _imagePicker = ImagePicker();
+
+  String? _companyLogoBase64;
 
   bool isLoading = true;
   bool isSaving = false;
@@ -56,13 +61,9 @@ class _VendorSettingsScreenState extends State<VendorSettingsScreen> {
     _loadSettings();
 
     companyNameController.addListener(_refreshPreview);
-
     vendorNameController.addListener(_refreshPreview);
-
     emailController.addListener(_refreshPreview);
-
     phoneController.addListener(_refreshPreview);
-
     addressController.addListener(_refreshPreview);
   }
 
@@ -73,24 +74,119 @@ class _VendorSettingsScreenState extends State<VendorSettingsScreen> {
   }
 
   Future<void> _loadSettings() async {
-    final settings = await VendorSettingsService.getVendorSettings();
+    try {
+      final settings = await VendorSettingsService.getVendorSettings();
 
-    companyNameController.text = settings['companyName'] ?? '';
+      companyNameController.text = settings['companyName'] ?? '';
 
-    vendorNameController.text = settings['vendorName'] ?? '';
+      vendorNameController.text = settings['vendorName'] ?? '';
 
-    emailController.text = settings['email'] ?? '';
+      emailController.text = settings['email'] ?? '';
 
-    phoneController.text = settings['phone'] ?? '';
+      phoneController.text = settings['phone'] ?? '';
 
-    addressController.text = settings['address'] ?? '';
+      addressController.text = settings['address'] ?? '';
 
-    if (mounted) {
+      _companyLogoBase64 = settings['companyLogo'];
+
+      if (_companyLogoBase64 != null && _companyLogoBase64!.isEmpty) {
+        _companyLogoBase64 = null;
+      }
+
+      if (mounted) {
+        setState(() {
+          isLoading = false;
+        });
+      }
+    } catch (e) {
+      if (!mounted) return;
+
       setState(() {
         isLoading = false;
       });
+
+      _showMessage('Could not load company settings.', Colors.redAccent);
     }
   }
+
+  // ------------------------------------------------------------
+  // COMPANY LOGO
+  // ------------------------------------------------------------
+  Future<void> _pickCompanyLogo() async {
+    try {
+      debugPrint('Opening gallery...');
+
+      final XFile? image = await _imagePicker.pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 800,
+        maxHeight: 800,
+        imageQuality: 80,
+        requestFullMetadata: false,
+      );
+
+      debugPrint('Selected image: ${image?.path}');
+
+      if (image == null) {
+        debugPrint('User cancelled image selection.');
+        return;
+      }
+
+      final Uint8List imageBytes = await image.readAsBytes();
+
+      debugPrint('Image bytes received: ${imageBytes.length}');
+
+      if (imageBytes.isEmpty) {
+        throw Exception('Selected image contains no data.');
+      }
+
+      final String base64Image = base64Encode(imageBytes);
+
+      if (mounted) {
+        setState(() {
+          _companyLogoBase64 = base64Image;
+        });
+      }
+
+      _showMessage('Company logo selected successfully.', Colors.green);
+    } catch (e, stackTrace) {
+      debugPrint('========== COMPANY LOGO ERROR ==========');
+      debugPrint('Error: $e');
+      debugPrint('StackTrace: $stackTrace');
+      debugPrint('========================================');
+
+      if (!mounted) return;
+
+      _showMessage('Logo error: $e', Colors.redAccent);
+    }
+  }
+  
+  Future<void> _removeCompanyLogo() async {
+    setState(() {
+      _companyLogoBase64 = null;
+    });
+
+    await VendorSettingsService.deleteCompanyLogo();
+
+    if (!mounted) return;
+
+    _showMessage('Company logo removed.', Colors.orange);
+  }
+
+  Uint8List? _getLogoBytes() {
+    if (_companyLogoBase64 == null || _companyLogoBase64!.isEmpty) {
+      return null;
+    }
+
+    try {
+      return base64Decode(_companyLogoBase64!);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  // ------------------------------------------------------------
+  // SAVE SETTINGS
+  // ------------------------------------------------------------
 
   Future<void> _saveSettings() async {
     final companyName = companyNameController.text.trim();
@@ -118,6 +214,7 @@ class _VendorSettingsScreenState extends State<VendorSettingsScreen> {
         email: emailController.text.trim(),
         phone: phoneController.text.trim(),
         address: addressController.text.trim(),
+        companyLogoBase64: _companyLogoBase64,
       );
 
       if (!mounted) return;
@@ -127,7 +224,7 @@ class _VendorSettingsScreenState extends State<VendorSettingsScreen> {
       });
 
       _showMessage(
-        'Company and vendor details saved successfully.',
+        'Company details and logo saved successfully.',
         Colors.green,
       );
 
@@ -179,6 +276,10 @@ class _VendorSettingsScreenState extends State<VendorSettingsScreen> {
     super.dispose();
   }
 
+  // ------------------------------------------------------------
+  // BUILD
+  // ------------------------------------------------------------
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -189,6 +290,7 @@ class _VendorSettingsScreenState extends State<VendorSettingsScreen> {
         elevation: 8,
         titleSpacing: 20,
         shadowColor: Colors.white.withOpacity(0.20),
+
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_ios_new),
           onPressed: () => Navigator.pop(context),
@@ -208,6 +310,14 @@ class _VendorSettingsScreenState extends State<VendorSettingsScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   _header(),
+
+                  const SizedBox(height: 20),
+
+                  _sectionTitle('Company Logo'),
+
+                  const SizedBox(height: 10),
+
+                  _companyLogoSection(),
 
                   const SizedBox(height: 20),
 
@@ -280,6 +390,7 @@ class _VendorSettingsScreenState extends State<VendorSettingsScreen> {
                     height: 54,
                     child: ElevatedButton.icon(
                       onPressed: isSaving ? null : _saveSettings,
+
                       icon: isSaving
                           ? const SizedBox(
                               width: 20,
@@ -290,6 +401,7 @@ class _VendorSettingsScreenState extends State<VendorSettingsScreen> {
                               ),
                             )
                           : const Icon(Icons.save_rounded),
+
                       label: Text(
                         isSaving ? 'Saving...' : 'Save Company Details',
                         style: const TextStyle(
@@ -297,6 +409,7 @@ class _VendorSettingsScreenState extends State<VendorSettingsScreen> {
                           fontSize: 15,
                         ),
                       ),
+
                       style: ElevatedButton.styleFrom(
                         backgroundColor: primaryColor,
                         foregroundColor: Colors.white,
@@ -312,7 +425,7 @@ class _VendorSettingsScreenState extends State<VendorSettingsScreen> {
                   const SizedBox(height: 20),
 
                   Text(
-                    'These details will automatically be used as the default vendor information when creating a new invoice.',
+                    'These details and the company logo will automatically be used as the default vendor information when creating a new invoice.',
                     style: TextStyle(
                       color: secondaryTextColor,
                       fontSize: 12,
@@ -327,7 +440,164 @@ class _VendorSettingsScreenState extends State<VendorSettingsScreen> {
     );
   }
 
+  // ------------------------------------------------------------
+  // COMPANY LOGO UI
+  // ------------------------------------------------------------
+
+  Widget _companyLogoSection() {
+    final logoBytes = _getLogoBytes();
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Theme.of(context).cardTheme.color,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: borderColor),
+      ),
+      child: Column(
+        children: [
+          if (logoBytes != null) ...[
+            Container(
+              width: 120,
+              height: 120,
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(color: borderColor),
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: Image.memory(logoBytes, fit: BoxFit.contain),
+              ),
+            ),
+
+            const SizedBox(height: 14),
+
+            Text(
+              companyNameController.text.trim().isEmpty
+                  ? 'Company Logo'
+                  : companyNameController.text.trim(),
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: mainTextColor,
+                fontSize: 15,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+
+            const SizedBox(height: 14),
+
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _pickCompanyLogo,
+                    icon: Icon(
+                      Icons.change_circle_outlined,
+                      color: primaryColor,
+                    ),
+                    label: Text(
+                      'Change Logo',
+                      style: TextStyle(
+                        color: primaryColor,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      side: BorderSide(color: primaryColor),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                  ),
+                ),
+
+                const SizedBox(width: 10),
+
+                IconButton(
+                  tooltip: 'Remove Logo',
+                  onPressed: _removeCompanyLogo,
+                  style: IconButton.styleFrom(
+                    backgroundColor: Colors.red.withOpacity(0.10),
+                  ),
+                  icon: const Icon(
+                    Icons.delete_outline_rounded,
+                    color: Colors.redAccent,
+                  ),
+                ),
+              ],
+            ),
+          ] else ...[
+            Container(
+              width: 100,
+              height: 100,
+              decoration: BoxDecoration(
+                color: primaryColor.withOpacity(0.10),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Icon(
+                Icons.business_rounded,
+                size: 48,
+                color: primaryColor,
+              ),
+            ),
+
+            const SizedBox(height: 14),
+
+            Text(
+              'No company logo',
+              style: TextStyle(
+                color: mainTextColor,
+                fontSize: 15,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+
+            const SizedBox(height: 5),
+
+            Text(
+              'Upload your company logo to print it on invoices.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: secondaryTextColor, fontSize: 12),
+            ),
+
+            const SizedBox(height: 16),
+
+            SizedBox(
+              width: double.infinity,
+              height: 48,
+              child: ElevatedButton.icon(
+                onPressed: _pickCompanyLogo,
+                icon: const Icon(Icons.upload_rounded),
+                label: const Text(
+                  'Upload Company Logo',
+                  style: TextStyle(fontWeight: FontWeight.w700),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: primaryColor,
+                  foregroundColor: Colors.white,
+                  elevation: 0,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  // ------------------------------------------------------------
+  // HEADER
+  // ------------------------------------------------------------
+
   Widget _header() {
+    final logoBytes = _getLogoBytes();
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(18),
@@ -340,15 +610,23 @@ class _VendorSettingsScreenState extends State<VendorSettingsScreen> {
           Container(
             width: 54,
             height: 54,
+            padding: logoBytes != null
+                ? const EdgeInsets.all(5)
+                : EdgeInsets.zero,
             decoration: BoxDecoration(
               color: Colors.white.withOpacity(0.18),
               borderRadius: BorderRadius.circular(15),
             ),
-            child: const Icon(
-              Icons.business_rounded,
-              color: Colors.white,
-              size: 28,
-            ),
+            child: logoBytes != null
+                ? ClipRRect(
+                    borderRadius: BorderRadius.circular(10),
+                    child: Image.memory(logoBytes, fit: BoxFit.contain),
+                  )
+                : const Icon(
+                    Icons.business_rounded,
+                    color: Colors.white,
+                    size: 28,
+                  ),
           ),
 
           const SizedBox(width: 14),
@@ -382,6 +660,10 @@ class _VendorSettingsScreenState extends State<VendorSettingsScreen> {
     );
   }
 
+  // ------------------------------------------------------------
+  // SECTION TITLE
+  // ------------------------------------------------------------
+
   Widget _sectionTitle(String title) {
     return Text(
       title,
@@ -392,6 +674,10 @@ class _VendorSettingsScreenState extends State<VendorSettingsScreen> {
       ),
     );
   }
+
+  // ------------------------------------------------------------
+  // INPUT
+  // ------------------------------------------------------------
 
   Widget _input({
     required TextEditingController controller,

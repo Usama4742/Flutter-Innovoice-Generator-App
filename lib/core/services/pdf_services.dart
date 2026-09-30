@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:typed_data';
+import 'package:innvoice_generator/core/services/vendor_services.dart';
 import 'package:innvoice_generator/models/invoice_model.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
@@ -9,57 +10,140 @@ class InvoicePdfService {
     final pdf = pw.Document();
 
     const primaryColor = PdfColor.fromInt(0xFF2563EB);
+
     const darkColor = PdfColor.fromInt(0xFF111827);
+
     const greyColor = PdfColor.fromInt(0xFF6B7280);
+
     const lightGrey = PdfColor.fromInt(0xFFF3F4F6);
+
     const greenColor = PdfColor.fromInt(0xFF16A34A);
 
+    // ----------------------------------------------------------
+    // LOAD COMPANY LOGO
+    // ----------------------------------------------------------
+
+    pw.MemoryImage? companyLogo;
+
+    try {
+      final logoBase64 = await VendorSettingsService.getCompanyLogo();
+
+      if (logoBase64 != null && logoBase64.isNotEmpty) {
+        final logoBytes = base64Decode(logoBase64);
+
+        companyLogo = pw.MemoryImage(logoBytes);
+      }
+    } catch (_) {
+      // If logo cannot be loaded,
+      // PDF continues without logo.
+      companyLogo = null;
+    }
+
+    // ----------------------------------------------------------
     // QR DATA
+    // ----------------------------------------------------------
+
     final qrData = _createQrData(invoice);
+
+    // ----------------------------------------------------------
+    // PDF
+    // ----------------------------------------------------------
 
     pdf.addPage(
       pw.MultiPage(
         pageFormat: PdfPageFormat.a4,
+
         margin: const pw.EdgeInsets.all(32),
 
+        // ------------------------------------------------------
+        // HEADER
+        // ------------------------------------------------------
         header: (context) {
           return pw.Row(
             mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+
+            crossAxisAlignment: pw.CrossAxisAlignment.center,
+
             children: [
-              pw.Column(
-                crossAxisAlignment: pw.CrossAxisAlignment.start,
-                children: [
-                  pw.Text(
-                    invoice.vendorCompanyName.isNotEmpty
-                        ? invoice.vendorCompanyName
-                        : invoice.vendorName,
-                    style: pw.TextStyle(
-                      fontSize: 22,
-                      fontWeight: pw.FontWeight.bold,
-                      color: primaryColor,
+              // COMPANY LOGO + COMPANY NAME
+              pw.Expanded(
+                child: pw.Row(
+                  crossAxisAlignment: pw.CrossAxisAlignment.center,
+
+                  children: [
+                    if (companyLogo != null) ...[
+                      pw.Container(
+                        width: 52,
+                        height: 52,
+                        padding: const pw.EdgeInsets.all(4),
+
+                        decoration: pw.BoxDecoration(
+                          color: PdfColors.white,
+
+                          borderRadius: pw.BorderRadius.circular(6),
+
+                          border: pw.Border.all(
+                            color: PdfColors.grey300,
+                            width: 0.7,
+                          ),
+                        ),
+
+                        child: pw.Image(companyLogo!, fit: pw.BoxFit.contain),
+                      ),
+
+                      pw.SizedBox(width: 10),
+                    ],
+
+                    pw.Expanded(
+                      child: pw.Column(
+                        crossAxisAlignment: pw.CrossAxisAlignment.start,
+
+                        children: [
+                          pw.Text(
+                            invoice.vendorCompanyName.isNotEmpty
+                                ? invoice.vendorCompanyName
+                                : invoice.vendorName,
+
+                            maxLines: 2,
+
+                            style: pw.TextStyle(
+                              fontSize: 22,
+                              fontWeight: pw.FontWeight.bold,
+                              color: primaryColor,
+                            ),
+                          ),
+
+                          pw.SizedBox(height: 4),
+
+                          pw.Text(
+                            'INVOICE',
+                            style: pw.TextStyle(
+                              fontSize: 12,
+                              fontWeight: pw.FontWeight.bold,
+                              color: greyColor,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                  pw.SizedBox(height: 4),
-                  pw.Text(
-                    'INVOICE',
-                    style: pw.TextStyle(
-                      fontSize: 12,
-                      fontWeight: pw.FontWeight.bold,
-                      color: greyColor,
-                    ),
-                  ),
-                ],
+                  ],
+                ),
               ),
 
+              pw.SizedBox(width: 15),
+
+              // INVOICE NUMBER
               pw.Container(
                 padding: const pw.EdgeInsets.symmetric(
                   horizontal: 12,
                   vertical: 8,
                 ),
+
                 decoration: pw.BoxDecoration(
                   color: lightGrey,
                   borderRadius: pw.BorderRadius.circular(6),
                 ),
+
                 child: pw.Text(
                   invoice.invoiceNumber,
                   style: pw.TextStyle(
@@ -73,16 +157,22 @@ class InvoicePdfService {
           );
         },
 
+        // ------------------------------------------------------
+        // FOOTER
+        // ------------------------------------------------------
         footer: (context) {
           return pw.Container(
             margin: const pw.EdgeInsets.only(top: 10),
+
             child: pw.Row(
               mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+
               children: [
                 pw.Text(
                   'Generated Invoice',
                   style: pw.TextStyle(fontSize: 8, color: greyColor),
                 ),
+
                 pw.Text(
                   'Page ${context.pageNumber} of ${context.pagesCount}',
                   style: pw.TextStyle(fontSize: 8, color: greyColor),
@@ -92,6 +182,9 @@ class InvoicePdfService {
           );
         },
 
+        // ------------------------------------------------------
+        // BODY
+        // ------------------------------------------------------
         build: (context) => [
           pw.SizedBox(height: 15),
 
@@ -118,6 +211,7 @@ class InvoicePdfService {
 
           // SUMMARY
           _summary(invoice, primaryColor, darkColor, greyColor),
+
           pw.SizedBox(height: 15),
 
           // QR CODE
@@ -129,9 +223,10 @@ class InvoicePdfService {
             greyColor,
             lightGrey,
           ),
+
           pw.SizedBox(height: 15),
 
-          // STATUS
+          // PAYMENT STATUS
           _paymentStatus(invoice, greenColor, darkColor),
         ],
       ),
@@ -140,9 +235,9 @@ class InvoicePdfService {
     return pdf.save();
   }
 
-  // ------------------------------------------------------------
+  // ============================================================
   // QR DATA
-  // ------------------------------------------------------------
+  // ============================================================
 
   static String _createQrData(Invoice invoice) {
     final Map<String, dynamic> data = {
@@ -165,9 +260,9 @@ class InvoicePdfService {
     return jsonEncode(data);
   }
 
-  // ------------------------------------------------------------
+  // ============================================================
   // QR SECTION
-  // ------------------------------------------------------------
+  // ============================================================
 
   static pw.Widget _qrSection(
     Invoice invoice,
@@ -180,24 +275,17 @@ class InvoicePdfService {
     return pw.Container(
       width: double.infinity,
       padding: const pw.EdgeInsets.all(16),
+
       decoration: pw.BoxDecoration(
         color: lightGrey,
         borderRadius: pw.BorderRadius.circular(12),
         border: pw.Border.all(color: PdfColors.grey300, width: 1),
       ),
+
       child: pw.Column(
         crossAxisAlignment: pw.CrossAxisAlignment.center,
-        children: [
-          // pw.Text(
-          //   'SCAN INVOICE',
-          //   style: pw.TextStyle(
-          //     fontSize: 15,
-          //     fontWeight: pw.FontWeight.bold,
-          //     color: primaryColor,
-          //   ),
-          // ),
 
-          // pw.SizedBox(height: 6),
+        children: [
           pw.Text(
             'Scan this QR code to view invoice details',
             textAlign: pw.TextAlign.center,
@@ -206,12 +294,12 @@ class InvoicePdfService {
 
           pw.SizedBox(height: 10),
 
-          // ACTUAL QR CODE
           pw.Container(
             width: 150,
             height: 150,
             padding: const pw.EdgeInsets.all(8),
             color: PdfColors.white,
+
             child: pw.BarcodeWidget(
               barcode: pw.Barcode.qrCode(),
               data: qrData,
@@ -219,35 +307,14 @@ class InvoicePdfService {
               height: 164,
             ),
           ),
-
-          // pw.SizedBox(height: 12),
-
-          // pw.Text(
-          //   invoice.invoiceNumber,
-          //   style: pw.TextStyle(
-          //     fontSize: 12,
-          //     fontWeight: pw.FontWeight.bold,
-          //     color: darkColor,
-          //   ),
-          // ),
-
-          // pw.SizedBox(height: 4),
-
-          // pw.Text(
-          //   'Invoice Number',
-          //   style: pw.TextStyle(
-          //     fontSize: 8,
-          //     color: greyColor,
-          //   ),
-          // ),
         ],
       ),
     );
   }
 
-  // ------------------------------------------------------------
+  // ============================================================
   // INVOICE META
-  // ------------------------------------------------------------
+  // ============================================================
 
   static pw.Widget _invoiceMeta(
     Invoice invoice,
@@ -258,12 +325,15 @@ class InvoicePdfService {
   ) {
     return pw.Container(
       padding: const pw.EdgeInsets.all(14),
+
       decoration: pw.BoxDecoration(
         color: lightGrey,
         borderRadius: pw.BorderRadius.circular(8),
       ),
+
       child: pw.Row(
         mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+
         children: [
           _metaItem(
             'Invoice Number',
@@ -271,24 +341,20 @@ class InvoicePdfService {
             darkColor,
             greyColor,
           ),
+
           _metaItem(
             'Date',
             _formatDate(invoice.invoiceDate),
             darkColor,
             greyColor,
           ),
+
           _metaItem(
             'Time',
             _formatTime(invoice.invoiceDate),
             darkColor,
             greyColor,
           ),
-          // _metaItem(
-          //   'Total',
-          //   _formatCurrency(invoice.total),
-          //   primaryColor,
-          //   greyColor,
-          // ),
         ],
       ),
     );
@@ -302,9 +368,12 @@ class InvoicePdfService {
   ) {
     return pw.Column(
       crossAxisAlignment: pw.CrossAxisAlignment.start,
+
       children: [
         pw.Text(title, style: pw.TextStyle(fontSize: 8, color: titleColor)),
+
         pw.SizedBox(height: 4),
+
         pw.Text(
           value,
           style: pw.TextStyle(
@@ -317,9 +386,9 @@ class InvoicePdfService {
     );
   }
 
-  // ------------------------------------------------------------
+  // ============================================================
   // CUSTOMER INFORMATION
-  // ------------------------------------------------------------
+  // ============================================================
 
   static pw.Widget _partyInformation(
     Invoice invoice,
@@ -330,12 +399,15 @@ class InvoicePdfService {
   ) {
     return pw.Container(
       padding: const pw.EdgeInsets.all(14),
+
       decoration: pw.BoxDecoration(
         border: pw.Border.all(color: PdfColors.grey300),
         borderRadius: pw.BorderRadius.circular(8),
       ),
+
       child: pw.Column(
         crossAxisAlignment: pw.CrossAxisAlignment.start,
+
         children: [
           pw.Text(
             'BILL TO',
@@ -359,6 +431,7 @@ class InvoicePdfService {
 
           if (invoice.customerEmail.isNotEmpty) ...[
             pw.SizedBox(height: 4),
+
             pw.Text(
               invoice.customerEmail,
               style: pw.TextStyle(fontSize: 12, color: darkColor),
@@ -367,6 +440,7 @@ class InvoicePdfService {
 
           if (invoice.customerPhone.isNotEmpty) ...[
             pw.SizedBox(height: 3),
+
             pw.Text(
               invoice.customerPhone,
               style: pw.TextStyle(fontSize: 12, color: darkColor),
@@ -377,9 +451,9 @@ class InvoicePdfService {
     );
   }
 
-  // ------------------------------------------------------------
+  // ============================================================
   // ITEMS TABLE
-  // ------------------------------------------------------------
+  // ============================================================
 
   static pw.Widget _itemsTable(
     Invoice invoice,
@@ -390,15 +464,18 @@ class InvoicePdfService {
   ) {
     return pw.Table(
       border: pw.TableBorder.all(color: PdfColors.grey300, width: 0.6),
+
       columnWidths: {
         0: const pw.FlexColumnWidth(3),
         1: const pw.FlexColumnWidth(1),
         2: const pw.FlexColumnWidth(1.5),
         3: const pw.FlexColumnWidth(1.5),
       },
+
       children: [
         pw.TableRow(
           decoration: pw.BoxDecoration(color: primaryColor),
+
           children: [
             _tableHeader('Item'),
             _tableHeader('Qty'),
@@ -411,8 +488,11 @@ class InvoicePdfService {
           return pw.TableRow(
             children: [
               _tableCell(item.name, darkColor),
+
               _tableCell(item.quantity.toString(), darkColor, center: true),
+
               _tableCell(_formatCurrency(item.price), darkColor, center: true),
+
               _tableCell(_formatCurrency(item.total), darkColor, center: true),
             ],
           );
@@ -424,9 +504,11 @@ class InvoicePdfService {
   static pw.Widget _tableHeader(String text) {
     return pw.Padding(
       padding: const pw.EdgeInsets.all(8),
+
       child: pw.Text(
         text,
         textAlign: pw.TextAlign.center,
+
         style: pw.TextStyle(
           color: PdfColors.white,
           fontSize: 9,
@@ -443,17 +525,19 @@ class InvoicePdfService {
   }) {
     return pw.Padding(
       padding: const pw.EdgeInsets.all(8),
+
       child: pw.Text(
         text,
         textAlign: center ? pw.TextAlign.center : pw.TextAlign.left,
+
         style: pw.TextStyle(fontSize: 12, color: color),
       ),
     );
   }
 
-  // ------------------------------------------------------------
+  // ============================================================
   // SUMMARY
-  // ------------------------------------------------------------
+  // ============================================================
 
   static pw.Widget _summary(
     Invoice invoice,
@@ -463,8 +547,10 @@ class InvoicePdfService {
   ) {
     return pw.Align(
       alignment: pw.Alignment.centerRight,
+
       child: pw.Container(
         width: 250,
+
         child: pw.Column(
           children: [
             _summaryRow(
@@ -473,12 +559,14 @@ class InvoicePdfService {
               darkColor,
               greyColor,
             ),
+
             _summaryRow(
               'Tax',
               _formatCurrency(invoice.tax),
               darkColor,
               greyColor,
             ),
+
             _summaryRow(
               'Discount',
               _formatCurrency(invoice.discount),
@@ -510,8 +598,10 @@ class InvoicePdfService {
   }) {
     return pw.Padding(
       padding: const pw.EdgeInsets.symmetric(vertical: 5),
+
       child: pw.Row(
         mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+
         children: [
           pw.Text(
             title,
@@ -521,6 +611,7 @@ class InvoicePdfService {
               color: titleColor,
             ),
           ),
+
           pw.Text(
             value,
             style: pw.TextStyle(
@@ -534,9 +625,9 @@ class InvoicePdfService {
     );
   }
 
-  // ------------------------------------------------------------
+  // ============================================================
   // PAYMENT STATUS
-  // ------------------------------------------------------------
+  // ============================================================
 
   static pw.Widget _paymentStatus(
     Invoice invoice,
@@ -546,12 +637,15 @@ class InvoicePdfService {
     return pw.Container(
       width: double.infinity,
       padding: const pw.EdgeInsets.all(12),
+
       decoration: pw.BoxDecoration(
         color: PdfColors.grey100,
         borderRadius: pw.BorderRadius.circular(8),
       ),
+
       child: pw.Row(
         mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+
         children: [
           pw.Text(
             'Payment Status',
@@ -561,12 +655,15 @@ class InvoicePdfService {
               color: darkColor,
             ),
           ),
+
           pw.Container(
             padding: const pw.EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+
             decoration: pw.BoxDecoration(
               color: greenColor,
               borderRadius: pw.BorderRadius.circular(20),
             ),
+
             child: pw.Text(
               invoice.status,
               style: pw.TextStyle(
@@ -581,9 +678,9 @@ class InvoicePdfService {
     );
   }
 
-  // ------------------------------------------------------------
+  // ============================================================
   // FORMATTERS
-  // ------------------------------------------------------------
+  // ============================================================
 
   static String _formatCurrency(double value) {
     return 'Rs. ${value.toStringAsFixed(2)}';
