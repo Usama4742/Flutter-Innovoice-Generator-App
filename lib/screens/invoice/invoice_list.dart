@@ -120,13 +120,14 @@ class _InvoiceListScreenState extends State<InvoiceListScreen> {
         ),
         backgroundColor: backgroundColor,
         foregroundColor: mainTextColor,
-        elevation: 8,
+        elevation: 5,
+        shadowColor: Colors.white.withOpacity(0.20),
         centerTitle: false,
         leading: IconButton(
           onPressed: () {
             Navigator.pop(context);
           },
-          icon: Icon(Icons.arrow_back_ios_new_outlined, color: mainTextColor),
+          icon: Icon(Icons.arrow_back_ios_new),
         ),
       ),
 
